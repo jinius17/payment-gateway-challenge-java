@@ -1,9 +1,16 @@
 package com.checkout.payment.gateway.service;
 
+import com.checkout.payment.gateway.client.BankClient;
+import com.checkout.payment.gateway.client.BankPaymentResult;
+import com.checkout.payment.gateway.enums.PaymentStatus;
+import com.checkout.payment.gateway.exception.BankUnavailableException;
 import com.checkout.payment.gateway.exception.EventProcessingException;
-import com.checkout.payment.gateway.model.PostPaymentRequest;
+import com.checkout.payment.gateway.exception.InvalidPaymentException;
+import com.checkout.payment.gateway.model.PaymentRequest;
 import com.checkout.payment.gateway.model.PostPaymentResponse;
 import com.checkout.payment.gateway.repository.PaymentsRepository;
+import com.checkout.payment.gateway.validation.PaymentValidator;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,9 +22,14 @@ public class PaymentGatewayService {
   private static final Logger LOG = LoggerFactory.getLogger(PaymentGatewayService.class);
 
   private final PaymentsRepository paymentsRepository;
+  private final PaymentValidator paymentValidator;
+  private final BankClient bankClient;
 
-  public PaymentGatewayService(PaymentsRepository paymentsRepository) {
+  public PaymentGatewayService(PaymentsRepository paymentsRepository,
+      PaymentValidator paymentValidator, BankClient bankClient) {
     this.paymentsRepository = paymentsRepository;
+    this.paymentValidator = paymentValidator;
+    this.bankClient = bankClient;
   }
 
   public PostPaymentResponse getPaymentById(UUID id) {
@@ -25,7 +37,36 @@ public class PaymentGatewayService {
     return paymentsRepository.get(id).orElseThrow(() -> new EventProcessingException("Invalid ID"));
   }
 
-  public UUID processPayment(PostPaymentRequest paymentRequest) {
-    return UUID.randomUUID();
+  public PostPaymentResponse processPayment(PaymentRequest paymentRequest) {
+    List<String> errors = paymentValidator.validate(paymentRequest);
+    if (!errors.isEmpty()) {
+      throw new InvalidPaymentException(errors);
+    }
+
+    BankPaymentResult bankResult = bankClient.submit(paymentRequest);
+    if (bankResult.isUnavailable()) {
+      throw new BankUnavailableException();
+    }
+
+    PostPaymentResponse payment = toPayment(paymentRequest, bankResult.isAuthorized());
+    paymentsRepository.add(payment);
+    LOG.debug("Stored payment {} with status {}", payment.getId(), payment.getStatus());
+    return payment;
+  }
+
+  private PostPaymentResponse toPayment(PaymentRequest paymentRequest, boolean authorized) {
+    PostPaymentResponse payment = new PostPaymentResponse();
+    payment.setId(UUID.randomUUID());
+    payment.setStatus(authorized ? PaymentStatus.AUTHORIZED : PaymentStatus.DECLINED);
+    payment.setCardNumberLastFour(lastFourDigits(paymentRequest.getCardNumber()));
+    payment.setExpiryMonth(paymentRequest.getExpiryMonth());
+    payment.setExpiryYear(paymentRequest.getExpiryYear());
+    payment.setCurrency(paymentRequest.getCurrency());
+    payment.setAmount(paymentRequest.getAmount());
+    return payment;
+  }
+
+  private int lastFourDigits(String cardNumber) {
+    return Integer.parseInt(cardNumber.substring(cardNumber.length() - 4));
   }
 }

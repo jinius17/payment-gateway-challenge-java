@@ -6,7 +6,9 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import org.springframework.stereotype.Component;
 
+@Component
 public class PaymentValidator {
 
   static final Set<String> SUPPORTED_CURRENCIES = Set.of("EUR", "GBP", "USD");
