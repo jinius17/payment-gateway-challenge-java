@@ -1,9 +1,17 @@
 package com.checkout.payment.gateway.controller;
 
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.checkout.payment.gateway.client.BankClient;
+import com.checkout.payment.gateway.client.BankPaymentResult;
 import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.PostPaymentResponse;
 import com.checkout.payment.gateway.repository.PaymentsRepository;
@@ -12,18 +20,31 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
-
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 class PaymentGatewayControllerTest {
 
+  private static final String PAYMENT = """
+      {
+        "cardNumber": "2222405343248877",
+        "expiryMonth": 4,
+        "expiryYear": 2035,
+        "currency": "GBP",
+        "amount": 100,
+        "cvv": "123"
+      }
+      """;
+
   @Autowired
   private MockMvc mvc;
   @Autowired
   PaymentsRepository paymentsRepository;
+  @MockBean
+  private BankClient bankClient;
 
   @Test
   void whenPaymentWithIdExistThenCorrectPaymentIsReturned() throws Exception {
@@ -38,7 +59,7 @@ class PaymentGatewayControllerTest {
 
     paymentsRepository.add(payment);
 
-    mvc.perform(MockMvcRequestBuilders.get("/payment/" + payment.getId()))
+    mvc.perform(get("/payment/" + payment.getId()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value(payment.getStatus().getName()))
         .andExpect(jsonPath("$.cardNumberLastFour").value(payment.getCardNumberLastFour()))
@@ -50,8 +71,44 @@ class PaymentGatewayControllerTest {
 
   @Test
   void whenPaymentWithIdDoesNotExistThen404IsReturned() throws Exception {
-    mvc.perform(MockMvcRequestBuilders.get("/payment/" + UUID.randomUUID()))
+    mvc.perform(get("/payment/" + UUID.randomUUID()))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.message").value("Page not found"));
+  }
+
+  @Test
+  void whenPaymentIsAuthorizedThenMaskedPaymentIsReturned() throws Exception {
+    when(bankClient.submit(any())).thenReturn(BankPaymentResult.from(true, "auth-code"));
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("Authorized"))
+        .andExpect(jsonPath("$.cardNumberLastFour").value(8877))
+        .andExpect(jsonPath("$.expiryMonth").value(4))
+        .andExpect(jsonPath("$.expiryYear").value(2035))
+        .andExpect(jsonPath("$.currency").value("GBP"))
+        .andExpect(jsonPath("$.amount").value(100))
+        .andExpect(jsonPath("$.id").isNotEmpty());
+  }
+
+  @Test
+  void whenPaymentIsInvalidThenItIsRejectedWithoutCallingTheBank() throws Exception {
+    String invalidPayment = PAYMENT.replace("\"amount\": 100", "\"amount\": 0");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(invalidPayment))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenBankIsUnavailableThen503IsReturned() throws Exception {
+    when(bankClient.submit(any())).thenReturn(BankPaymentResult.unavailable());
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.message").value("Acquiring bank is unavailable"));
   }
 }

@@ -1,5 +1,6 @@
 package com.checkout.payment.gateway.exception;
 
+import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,5 +19,19 @@ public class CommonExceptionHandler {
     LOG.error("Exception happened", ex);
     return new ResponseEntity<>(new ErrorResponse("Page not found"),
         HttpStatus.NOT_FOUND);
+  }
+
+  @ExceptionHandler(InvalidPaymentException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidPayment(InvalidPaymentException ex) {
+    String message = String.join(", ", ex.getErrors());
+    return new ResponseEntity<>(
+        new ErrorResponse(message, PaymentStatus.REJECTED.getName()),
+        HttpStatus.BAD_REQUEST);
+  }
+
+  @ExceptionHandler(BankUnavailableException.class)
+  public ResponseEntity<ErrorResponse> handleBankUnavailable(BankUnavailableException ex) {
+    return new ResponseEntity<>(new ErrorResponse(ex.getMessage()),
+        HttpStatus.SERVICE_UNAVAILABLE);
   }
 }
