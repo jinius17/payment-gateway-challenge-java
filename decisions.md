@@ -7,24 +7,24 @@ The gateway validates a merchant payment, sends a valid one to the bank simulato
 `POST /payment` accepts `cardNumber`, `expiryMonth`, `expiryYear`, `currency`, `amount`, and `cvv`. Field names match the existing `GET /payment/{id}` response, which uses camelCase.
 
 - `200` with status `Authorized` or `Declined` when the bank returns a decision. The body includes the id, status, last four card digits, expiry month, expiry year, currency, and amount. Both decisions use `200` because the gateway processed the request and the bank made a decision. The merchant reads the outcome from `status`.
-- `400` with status `Rejected` and a message when the request is invalid. Nothing is stored.
+- `400` with status `Rejected` and a message when the request is invalid, including a body that cannot be read. Nothing is stored. The response does not echo the payload.
 - `503` when the bank responds with `503`. Nothing is stored. This is not a rejection: the card details were valid, and the bank did not make a decision.
 - `500` when the bank times out or returns any status other than `503`. Nothing is stored. The body has a message and no payment status.
-- `GET /payment/{id}` is unchanged. An unknown id returns `404`.
+- `GET /payment/{id}` is unchanged. An id that is not a UUID returns `400` with a message and no payment status. An unknown id returns `404`.
 
 The bank authorization code is not stored or returned. The merchant response defined for this exercise does not include it.
 
 ## Validation
 
-- The card number is 14 to 19 digits. It is kept as text.
-- The CVV is 3 or 4 digits and is kept as text, so a leading zero is preserved.
-- The expiry month is 1 to 12. The month and year together must not be in the past. A card is treated as valid through the end of its expiry month, so the current month is still accepted.
-- The amount is a positive integer in minor units.
+- The card number is 14 to 19 digits and must be sent as text. A JSON number is rejected, so a leading zero cannot be dropped before validation.
+- The CVV is 3 or 4 digits and must be sent as text, so a leading zero is preserved.
+- The expiry month is 1 to 12. The expiry year is four digits. The month and year together must not be in the past. A card is treated as valid through the end of its expiry month, so the current month is still accepted.
+- The amount is a positive integer in minor units and must be sent as a JSON integer. A fraction such as `10.5` is rejected rather than truncated.
 - The currency is one of `EUR`, `GBP`, or `USD`. The exercise asks for at most three codes. `GBP` is the simulator example and `USD` is already used by the existing test.
 
 ## What is stored
 
-A stored payment has a UUID, the bank decision, the last four digits, the expiry, the currency, and the amount. The full card number and the CVV are not stored, logged, or returned. A stored payment is logged with its id, status, and last four digits. An unknown id and a bank failure are warnings, without a stack trace. The last four digits are a number, matching the field already on the response model.
+A stored payment has a UUID, the bank decision, the last four digits, the expiry, the currency, and the amount. The full card number and the CVV are not stored, logged, or returned. A stored payment is logged with its id, status, and last four digits. An unknown id and a bank failure are warnings, without a stack trace and without the request body. The last four digits are text, so a leading zero is preserved.
 
 Payments are kept in the skeleton `PaymentsRepository`, a hash map that lives for the process. There is no database.
 

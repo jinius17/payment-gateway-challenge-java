@@ -44,24 +44,25 @@ public class PaymentGatewayService {
     }
 
     BankPaymentResult bankResult = bankClient.submit(paymentRequest);
-    int lastFour = lastFourDigits(paymentRequest.getCardNumber());
+    String lastFour = lastFourDigits(paymentRequest.getCardNumber());
     if (bankResult.isUnavailable()) {
       LOG.warn("Acquiring bank unavailable for card ending {}", lastFour);
       throw new BankUnavailableException();
     }
 
-    PostPaymentResponse payment = toPayment(paymentRequest, bankResult.isAuthorized());
+    PostPaymentResponse payment = toPayment(paymentRequest, bankResult.isAuthorized(), lastFour);
     paymentsRepository.add(payment);
     LOG.info("Payment {} {} for card ending {}", payment.getId(), payment.getStatus().getName(),
         lastFour);
     return payment;
   }
 
-  private PostPaymentResponse toPayment(PaymentRequest paymentRequest, boolean authorized) {
+  private PostPaymentResponse toPayment(PaymentRequest paymentRequest, boolean authorized,
+      String lastFour) {
     PostPaymentResponse payment = new PostPaymentResponse();
     payment.setId(UUID.randomUUID());
     payment.setStatus(authorized ? PaymentStatus.AUTHORIZED : PaymentStatus.DECLINED);
-    payment.setCardNumberLastFour(lastFourDigits(paymentRequest.getCardNumber()));
+    payment.setCardNumberLastFour(lastFour);
     payment.setExpiryMonth(paymentRequest.getExpiryMonth());
     payment.setExpiryYear(paymentRequest.getExpiryYear());
     payment.setCurrency(paymentRequest.getCurrency());
@@ -69,7 +70,7 @@ public class PaymentGatewayService {
     return payment;
   }
 
-  private int lastFourDigits(String cardNumber) {
-    return Integer.parseInt(cardNumber.substring(cardNumber.length() - 4));
+  private String lastFourDigits(String cardNumber) {
+    return cardNumber.substring(cardNumber.length() - 4);
   }
 }

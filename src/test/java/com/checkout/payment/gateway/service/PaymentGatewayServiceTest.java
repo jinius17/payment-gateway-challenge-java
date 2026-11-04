@@ -56,11 +56,22 @@ class PaymentGatewayServiceTest {
     assertThat(stored.getValue()).isSameAs(payment);
     assertThat(payment.getId()).isNotNull();
     assertThat(payment.getStatus()).isEqualTo(PaymentStatus.AUTHORIZED);
-    assertThat(payment.getCardNumberLastFour()).isEqualTo(8877);
+    assertThat(payment.getCardNumberLastFour()).isEqualTo("8877");
     assertThat(payment.getExpiryMonth()).isEqualTo(4);
     assertThat(payment.getExpiryYear()).isEqualTo(2027);
     assertThat(payment.getCurrency()).isEqualTo("GBP");
     assertThat(payment.getAmount()).isEqualTo(100);
+  }
+
+  @Test
+  void keepsALeadingZeroInTheLastFourDigits() {
+    PaymentRequest request = validRequest();
+    request.setCardNumber("2222405343240012");
+    when(bankClient.submit(request)).thenReturn(BankPaymentResult.from(true, "auth-code"));
+
+    PostPaymentResponse payment = paymentGatewayService.processPayment(request);
+
+    assertThat(payment.getCardNumberLastFour()).isEqualTo("0012");
   }
 
   @Test

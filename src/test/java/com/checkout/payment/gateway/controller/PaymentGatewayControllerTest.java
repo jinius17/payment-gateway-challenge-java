@@ -59,7 +59,7 @@ class PaymentGatewayControllerTest {
     payment.setStatus(PaymentStatus.AUTHORIZED);
     payment.setExpiryMonth(12);
     payment.setExpiryYear(2024);
-    payment.setCardNumberLastFour(4321);
+    payment.setCardNumberLastFour("4321");
 
     paymentsRepository.add(payment);
 
@@ -87,7 +87,7 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("Authorized"))
-        .andExpect(jsonPath("$.cardNumberLastFour").value(8877))
+        .andExpect(jsonPath("$.cardNumberLastFour").value("8877"))
         .andExpect(jsonPath("$.expiryMonth").value(4))
         .andExpect(jsonPath("$.expiryYear").value(2035))
         .andExpect(jsonPath("$.currency").value("GBP"))
@@ -133,7 +133,7 @@ class PaymentGatewayControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id").value(id))
         .andExpect(jsonPath("$.status").value("Authorized"))
-        .andExpect(jsonPath("$.cardNumberLastFour").value(8877))
+        .andExpect(jsonPath("$.cardNumberLastFour").value("8877"))
         .andExpect(jsonPath("$.expiryMonth").value(4))
         .andExpect(jsonPath("$.expiryYear").value(2035))
         .andExpect(jsonPath("$.currency").value("GBP"))
@@ -158,5 +158,82 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
         .andExpect(status().isInternalServerError())
         .andExpect(jsonPath("$.message").value("Acquiring bank request failed"));
+  }
+
+  @Test
+  void whenAmountIsFractionalThenItIsRejectedWithoutCallingTheBank() throws Exception {
+    String fractional = PAYMENT.replace("\"amount\": 100", "\"amount\": 10.5");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(fractional))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenAmountDoesNotFitInAnIntegerThenItIsRejected() throws Exception {
+    String tooLarge = PAYMENT.replace("\"amount\": 100", "\"amount\": 99999999999");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(tooLarge))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenCardNumberIsAJsonNumberThenItIsRejected() throws Exception {
+    String numericCard = PAYMENT.replace(
+        "\"cardNumber\": \"2222405343248877\"", "\"cardNumber\": 2222405343248877");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(numericCard))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Card number must be 14 to 19 digits"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenExpiryYearIsNotFourDigitsThenItIsRejected() throws Exception {
+    String hugeYear = PAYMENT.replace("\"expiryYear\": 2035", "\"expiryYear\": 2000000000");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(hugeYear))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Expiry year must be a four-digit year"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenTheBodyIsNotJsonThenItIsRejected() throws Exception {
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content("{"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Payment request could not be read"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenThePaymentIdIsNotAUuidThen400IsReturned() throws Exception {
+    mvc.perform(get("/payment/not-a-uuid"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.message").value("Payment id must be a UUID"))
+        .andExpect(jsonPath("$.status").doesNotExist());
+  }
+
+  @Test
+  void whenTheCardEndsWithALeadingZeroThenTheLastFourDigitsArePreserved() throws Exception {
+    when(bankClient.submit(any())).thenReturn(BankPaymentResult.from(true, "auth-code"));
+    String card = PAYMENT.replace("2222405343248877", "2222405343240012");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(card))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.cardNumberLastFour").value("0012"));
   }
 }

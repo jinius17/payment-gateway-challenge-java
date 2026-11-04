@@ -44,10 +44,13 @@ public class PaymentValidator {
     if (!monthValid) {
       errors.add("Expiry month must be between 1 and 12");
     }
+    boolean yearValid = expiryYear != null && expiryYear >= 1000 && expiryYear <= 9999;
     if (expiryYear == null) {
       errors.add("Expiry year is required");
+    } else if (!yearValid) {
+      errors.add("Expiry year must be a four-digit year");
     }
-    if (monthValid && expiryYear != null) {
+    if (monthValid && yearValid) {
       YearMonth expiry = YearMonth.of(expiryYear, expiryMonth);
       if (expiry.isBefore(YearMonth.now(clock))) {
         errors.add("Expiry month and year must not be in the past");

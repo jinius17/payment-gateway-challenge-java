@@ -53,6 +53,15 @@ class PaymentValidatorTest {
   }
 
   @Test
+  void rejectsAnExpiryYearThatIsNotFourDigits() {
+    PaymentRequest request = validRequest();
+    request.setExpiryYear(2000000000);
+
+    assertThat(paymentValidator.validate(request))
+        .contains("Expiry year must be a four-digit year");
+  }
+
+  @Test
   void rejectsAnExpiryDateInThePast() {
     PaymentRequest request = validRequest();
     request.setExpiryMonth(9);
