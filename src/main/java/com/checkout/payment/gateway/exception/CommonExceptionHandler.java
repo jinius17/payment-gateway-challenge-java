@@ -2,8 +2,9 @@ package com.checkout.payment.gateway.exception;
 
 import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.ErrorResponse;
+import com.fasterxml.jackson.core.exc.InputCoercionException;
 import com.fasterxml.jackson.databind.JsonMappingException;
-import java.util.Map;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -18,14 +19,6 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class CommonExceptionHandler {
 
   private static final Logger LOG = LoggerFactory.getLogger(CommonExceptionHandler.class);
-
-  private static final Map<String, String> FIELD_MESSAGES = Map.of(
-      "cardNumber", "Card number must be 14 to 19 digits",
-      "expiryMonth", "Expiry month must be between 1 and 12",
-      "expiryYear", "Expiry year must be a four-digit year",
-      "currency", "Currency must be EUR, GBP, or USD",
-      "amount", "Amount must be a positive integer",
-      "cvv", "CVV must be 3 or 4 digits");
 
   @ExceptionHandler(EventProcessingException.class)
   public ResponseEntity<ErrorResponse> handleException(EventProcessingException ex) {
@@ -75,10 +68,33 @@ public class CommonExceptionHandler {
   private String fieldMessage(HttpMessageNotReadableException ex) {
     if (ex.getCause() instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()) {
       String field = mapping.getPath().get(mapping.getPath().size() - 1).getFieldName();
-      if (field != null && FIELD_MESSAGES.containsKey(field)) {
-        return FIELD_MESSAGES.get(field);
+      if (field != null) {
+        return field + " " + jsonTypeProblem(mapping);
       }
     }
     return "Payment request could not be read";
+  }
+
+  private String jsonTypeProblem(JsonMappingException mapping) {
+    if (isOutOfRange(mapping)) {
+      return "is outside the supported range";
+    }
+    Class<?> target = mapping instanceof MismatchedInputException mismatched
+        ? mismatched.getTargetType() : null;
+    if (target == Integer.class || target == int.class) {
+      return "must be a JSON integer";
+    }
+    if (target == String.class) {
+      return "must be a JSON string";
+    }
+    return "has an invalid JSON type";
+  }
+
+  private boolean isOutOfRange(JsonMappingException mapping) {
+    if (mapping.getCause() instanceof InputCoercionException) {
+      return true;
+    }
+    String message = mapping.getOriginalMessage();
+    return message != null && message.contains("out of range");
   }
 }

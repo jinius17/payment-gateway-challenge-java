@@ -167,7 +167,7 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(fractional))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.status").value("Rejected"))
-        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+        .andExpect(jsonPath("$.message").value("amount must be a JSON integer"));
 
     verify(bankClient, never()).submit(any());
   }
@@ -179,7 +179,7 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(tooLarge))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.status").value("Rejected"))
-        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+        .andExpect(jsonPath("$.message").value("amount is outside the supported range"));
 
     verify(bankClient, never()).submit(any());
   }
@@ -192,7 +192,43 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(numericCard))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.status").value("Rejected"))
-        .andExpect(jsonPath("$.message").value("Card number must be 14 to 19 digits"));
+        .andExpect(jsonPath("$.message").value("cardNumber must be a JSON string"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenExpiryMonthIsTextThenTheMessageNamesTheJsonType() throws Exception {
+    String month = PAYMENT.replace("\"expiryMonth\": 4", "\"expiryMonth\": \"04\"");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(month))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("expiryMonth must be a JSON integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenExpiryYearIsTextThenTheMessageNamesTheJsonType() throws Exception {
+    String year = PAYMENT.replace("\"expiryYear\": 2035", "\"expiryYear\": \"2030\"");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(year))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("expiryYear must be a JSON integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenCvvIsAJsonNumberThenTheMessageNamesTheJsonType() throws Exception {
+    String cvv = PAYMENT.replace("\"cvv\": \"123\"", "\"cvv\": 123");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(cvv))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("cvv must be a JSON string"));
 
     verify(bankClient, never()).submit(any());
   }
