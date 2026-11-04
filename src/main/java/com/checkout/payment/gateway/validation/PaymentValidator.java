@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
@@ -20,16 +21,36 @@ public class PaymentValidator {
   }
 
   public List<String> validate(PaymentRequest request) {
+    return validate(request, Map.of());
+  }
+
+  List<String> validate(PaymentRequest request, Map<PaymentField, String> problems) {
     if (request == null) {
       return List.of("Payment request is required");
     }
 
     List<String> errors = new ArrayList<>();
-    validateCardNumber(request.getCardNumber(), errors);
-    validateExpiry(request.getExpiryMonth(), request.getExpiryYear(), errors);
-    validateCurrency(request.getCurrency(), errors);
-    validateAmount(request.getAmount(), errors);
-    validateCvv(request.getCvv(), errors);
+    if (problems.containsKey(PaymentField.CARD_NUMBER)) {
+      errors.add(problems.get(PaymentField.CARD_NUMBER));
+    } else {
+      validateCardNumber(request.getCardNumber(), errors);
+    }
+    validateExpiry(request.getExpiryMonth(), request.getExpiryYear(), problems, errors);
+    if (problems.containsKey(PaymentField.CURRENCY)) {
+      errors.add(problems.get(PaymentField.CURRENCY));
+    } else {
+      validateCurrency(request.getCurrency(), errors);
+    }
+    if (problems.containsKey(PaymentField.AMOUNT)) {
+      errors.add(problems.get(PaymentField.AMOUNT));
+    } else {
+      validateAmount(request.getAmount(), errors);
+    }
+    if (problems.containsKey(PaymentField.CVV)) {
+      errors.add(problems.get(PaymentField.CVV));
+    } else {
+      validateCvv(request.getCvv(), errors);
+    }
     return List.copyOf(errors);
   }
 
@@ -39,13 +60,20 @@ public class PaymentValidator {
     }
   }
 
-  private void validateExpiry(Integer expiryMonth, Integer expiryYear, List<String> errors) {
+  private void validateExpiry(Integer expiryMonth, Integer expiryYear,
+      Map<PaymentField, String> problems, List<String> errors) {
     boolean monthValid = expiryMonth != null && expiryMonth >= 1 && expiryMonth <= 12;
-    if (!monthValid) {
+    if (problems.containsKey(PaymentField.EXPIRY_MONTH)) {
+      errors.add(problems.get(PaymentField.EXPIRY_MONTH));
+      monthValid = false;
+    } else if (!monthValid) {
       errors.add("Expiry month must be between 1 and 12");
     }
     boolean yearValid = expiryYear != null && expiryYear >= 1000 && expiryYear <= 9999;
-    if (expiryYear == null) {
+    if (problems.containsKey(PaymentField.EXPIRY_YEAR)) {
+      errors.add(problems.get(PaymentField.EXPIRY_YEAR));
+      yearValid = false;
+    } else if (expiryYear == null) {
       errors.add("Expiry year is required");
     } else if (!yearValid) {
       errors.add("Expiry year must be a four-digit year");

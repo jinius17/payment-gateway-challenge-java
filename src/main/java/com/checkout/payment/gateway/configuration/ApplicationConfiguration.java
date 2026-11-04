@@ -1,5 +1,6 @@
 package com.checkout.payment.gateway.configuration;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
@@ -24,6 +25,9 @@ public class ApplicationConfiguration {
   @Bean
   public Jackson2ObjectMapperBuilderCustomizer strictJsonNumbers() {
     return builder -> builder
+        .featuresToEnable(
+            JsonParser.Feature.STRICT_DUPLICATE_DETECTION,
+            DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
         .featuresToDisable(
             DeserializationFeature.ACCEPT_FLOAT_AS_INT,
             MapperFeature.ALLOW_COERCION_OF_SCALARS)

@@ -2,9 +2,6 @@ package com.checkout.payment.gateway.exception;
 
 import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.ErrorResponse;
-import com.fasterxml.jackson.core.exc.InputCoercionException;
-import com.fasterxml.jackson.databind.JsonMappingException;
-import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -52,7 +49,7 @@ public class CommonExceptionHandler {
   public ResponseEntity<ErrorResponse> handleUnreadable(HttpMessageNotReadableException ex) {
     LOG.warn("Payment request could not be read");
     return new ResponseEntity<>(
-        new ErrorResponse(fieldMessage(ex), PaymentStatus.REJECTED.getName()),
+        new ErrorResponse("Payment request could not be read", PaymentStatus.REJECTED.getName()),
         HttpStatus.BAD_REQUEST);
   }
 
@@ -63,38 +60,5 @@ public class CommonExceptionHandler {
         ? "Payment id must be a UUID"
         : "Request parameter is invalid";
     return new ResponseEntity<>(new ErrorResponse(message), HttpStatus.BAD_REQUEST);
-  }
-
-  private String fieldMessage(HttpMessageNotReadableException ex) {
-    if (ex.getCause() instanceof JsonMappingException mapping && !mapping.getPath().isEmpty()) {
-      String field = mapping.getPath().get(mapping.getPath().size() - 1).getFieldName();
-      if (field != null) {
-        return field + " " + jsonTypeProblem(mapping);
-      }
-    }
-    return "Payment request could not be read";
-  }
-
-  private String jsonTypeProblem(JsonMappingException mapping) {
-    if (isOutOfRange(mapping)) {
-      return "is outside the supported range";
-    }
-    Class<?> target = mapping instanceof MismatchedInputException mismatched
-        ? mismatched.getTargetType() : null;
-    if (target == Integer.class || target == int.class) {
-      return "must be a JSON integer";
-    }
-    if (target == String.class) {
-      return "must be a JSON string";
-    }
-    return "has an invalid JSON type";
-  }
-
-  private boolean isOutOfRange(JsonMappingException mapping) {
-    if (mapping.getCause() instanceof InputCoercionException) {
-      return true;
-    }
-    String message = mapping.getOriginalMessage();
-    return message != null && message.contains("out of range");
   }
 }
