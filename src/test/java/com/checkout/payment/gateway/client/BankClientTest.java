@@ -1,19 +1,24 @@
 package com.checkout.payment.gateway.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.checkout.payment.gateway.model.PaymentRequest;
+import java.net.SocketTimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 class BankClientTest {
@@ -77,6 +82,24 @@ class BankClientTest {
 
     assertThat(result.isUnavailable()).isTrue();
     assertThat(result.isAuthorized()).isFalse();
+  }
+
+  @Test
+  void propagatesABankErrorOtherThan503() {
+    bank.expect(requestTo(PAYMENTS_URL))
+        .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+
+    assertThatThrownBy(() -> bankClient.submit(payment()))
+        .isInstanceOf(HttpStatusCodeException.class);
+  }
+
+  @Test
+  void propagatesATimeout() {
+    bank.expect(requestTo(PAYMENTS_URL))
+        .andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+    assertThatThrownBy(() -> bankClient.submit(payment()))
+        .isInstanceOf(ResourceAccessException.class);
   }
 
   private PaymentRequest payment() {

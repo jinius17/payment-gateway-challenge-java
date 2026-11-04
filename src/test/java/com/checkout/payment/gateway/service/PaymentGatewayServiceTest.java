@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.web.client.ResourceAccessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -82,6 +83,17 @@ class PaymentGatewayServiceTest {
         .isInstanceOf(InvalidPaymentException.class);
 
     verify(bankClient, never()).submit(any());
+    verify(paymentsRepository, never()).add(any());
+  }
+
+  @Test
+  void storesNothingWhenTheBankFails() {
+    PaymentRequest request = validRequest();
+    when(bankClient.submit(request)).thenThrow(new ResourceAccessException("Read timed out"));
+
+    assertThatThrownBy(() -> paymentGatewayService.processPayment(request))
+        .isInstanceOf(ResourceAccessException.class);
+
     verify(paymentsRepository, never()).add(any());
   }
 

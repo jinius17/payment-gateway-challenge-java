@@ -15,8 +15,12 @@ import com.checkout.payment.gateway.client.BankPaymentResult;
 import com.checkout.payment.gateway.enums.PaymentStatus;
 import com.checkout.payment.gateway.model.PostPaymentResponse;
 import com.checkout.payment.gateway.repository.PaymentsRepository;
+import com.jayway.jsonpath.JsonPath;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -110,5 +114,49 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.message").value("Acquiring bank is unavailable"));
+  }
+
+  @Test
+  void whenPaymentIsAuthorizedThenItCanBeRetrieved() throws Exception {
+    when(bankClient.submit(any())).thenReturn(BankPaymentResult.from(true, "auth-code"));
+
+    String body = mvc.perform(post("/payment")
+        .contentType(MediaType.APPLICATION_JSON)
+        .content(PAYMENT))
+        .andExpect(status().isOk())
+        .andReturn()
+        .getResponse()
+        .getContentAsString();
+    String id = JsonPath.read(body, "$.id");
+
+    mvc.perform(get("/payment/" + id))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(id))
+        .andExpect(jsonPath("$.status").value("Authorized"))
+        .andExpect(jsonPath("$.cardNumberLastFour").value(8877))
+        .andExpect(jsonPath("$.expiryMonth").value(4))
+        .andExpect(jsonPath("$.expiryYear").value(2035))
+        .andExpect(jsonPath("$.currency").value("GBP"))
+        .andExpect(jsonPath("$.amount").value(100));
+  }
+
+  @Test
+  void whenBankReturnsAnErrorThen500IsReturned() throws Exception {
+    when(bankClient.submit(any()))
+        .thenThrow(new HttpServerErrorException(HttpStatus.INTERNAL_SERVER_ERROR));
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message").value("Acquiring bank request failed"))
+        .andExpect(jsonPath("$.status").doesNotExist());
+  }
+
+  @Test
+  void whenBankTimesOutThen500IsReturned() throws Exception {
+    when(bankClient.submit(any())).thenThrow(new ResourceAccessException("Read timed out"));
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(PAYMENT))
+        .andExpect(status().isInternalServerError())
+        .andExpect(jsonPath("$.message").value("Acquiring bank request failed"));
   }
 }

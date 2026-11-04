@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.client.RestClientException;
 
 @ControllerAdvice
 public class CommonExceptionHandler {
@@ -16,7 +17,7 @@ public class CommonExceptionHandler {
 
   @ExceptionHandler(EventProcessingException.class)
   public ResponseEntity<ErrorResponse> handleException(EventProcessingException ex) {
-    LOG.error("Exception happened", ex);
+    LOG.warn("Payment not found: {}", ex.getMessage());
     return new ResponseEntity<>(new ErrorResponse("Page not found"),
         HttpStatus.NOT_FOUND);
   }
@@ -33,5 +34,12 @@ public class CommonExceptionHandler {
   public ResponseEntity<ErrorResponse> handleBankUnavailable(BankUnavailableException ex) {
     return new ResponseEntity<>(new ErrorResponse(ex.getMessage()),
         HttpStatus.SERVICE_UNAVAILABLE);
+  }
+
+  @ExceptionHandler(RestClientException.class)
+  public ResponseEntity<ErrorResponse> handleBankError(RestClientException ex) {
+    LOG.warn("Acquiring bank request failed: {}", ex.getMessage());
+    return new ResponseEntity<>(new ErrorResponse("Acquiring bank request failed"),
+        HttpStatus.INTERNAL_SERVER_ERROR);
   }
 }

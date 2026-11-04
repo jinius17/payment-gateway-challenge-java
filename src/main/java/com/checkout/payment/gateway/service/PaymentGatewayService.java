@@ -33,7 +33,7 @@ public class PaymentGatewayService {
   }
 
   public PostPaymentResponse getPaymentById(UUID id) {
-    LOG.debug("Requesting access to to payment with ID {}", id);
+    LOG.debug("Retrieving payment {}", id);
     return paymentsRepository.get(id).orElseThrow(() -> new EventProcessingException("Invalid ID"));
   }
 
@@ -44,13 +44,16 @@ public class PaymentGatewayService {
     }
 
     BankPaymentResult bankResult = bankClient.submit(paymentRequest);
+    int lastFour = lastFourDigits(paymentRequest.getCardNumber());
     if (bankResult.isUnavailable()) {
+      LOG.warn("Acquiring bank unavailable for card ending {}", lastFour);
       throw new BankUnavailableException();
     }
 
     PostPaymentResponse payment = toPayment(paymentRequest, bankResult.isAuthorized());
     paymentsRepository.add(payment);
-    LOG.debug("Stored payment {} with status {}", payment.getId(), payment.getStatus());
+    LOG.info("Payment {} {} for card ending {}", payment.getId(), payment.getStatus().getName(),
+        lastFour);
     return payment;
   }
 
