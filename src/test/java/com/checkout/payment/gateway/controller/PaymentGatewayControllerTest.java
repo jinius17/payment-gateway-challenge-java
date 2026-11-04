@@ -77,7 +77,7 @@ class PaymentGatewayControllerTest {
   void whenPaymentWithIdDoesNotExistThen404IsReturned() throws Exception {
     mvc.perform(get("/payment/" + UUID.randomUUID()))
         .andExpect(status().isNotFound())
-        .andExpect(jsonPath("$.message").value("Page not found"));
+        .andExpect(jsonPath("$.message").value("Payment not found"));
   }
 
   @Test
@@ -252,9 +252,85 @@ class PaymentGatewayControllerTest {
     mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(duplicate))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.status").value("Rejected"))
-        .andExpect(jsonPath("$.message").value("Request body contains a duplicate field"));
+        .andExpect(jsonPath("$.message").value("Amount must appear only once"));
 
     verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenAFieldIsDuplicatedTheOtherFieldsAreStillChecked() throws Exception {
+    String body = PAYMENT
+        .replace("\"amount\": 100", "\"amount\": 100, \"amount\": 5")
+        .replace("\"currency\": \"GBP\"", "\"currency\": \"JPY\"");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value(
+            "Currency must be EUR, GBP, or USD, Amount must appear only once"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenAnUnknownFieldIsSentThenItIsRejected() throws Exception {
+    String body = PAYMENT.replace("\"cvv\": \"123\"", "\"cvv\": \"123\", \"note\": \"hello\"");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Request body contains an unknown field"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenAFieldIsNullThenItIsReportedAsTheWrongType() throws Exception {
+    String body = PAYMENT.replace("\"amount\": 100", "\"amount\": null");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Amount must be a JSON integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenAFieldIsMissingThenTheValueRuleIsReported() throws Exception {
+    String body = PAYMENT.replace("\"amount\": 100,", "");
+
+    mvc.perform(post("/payment").contentType(MediaType.APPLICATION_JSON).content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.status").value("Rejected"))
+        .andExpect(jsonPath("$.message").value("Amount must be a positive integer"));
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void whenTheContentTypeIsNotJsonThen415IsReturned() throws Exception {
+    mvc.perform(post("/payment").contentType(MediaType.TEXT_PLAIN).content(PAYMENT))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.message").value("Content-Type must be application/json"))
+        .andExpect(jsonPath("$.status").doesNotExist());
+
+    verify(bankClient, never()).submit(any());
+  }
+
+  @Test
+  void theApiDocumentDescribesThePaymentRequestAndItsErrors() throws Exception {
+    mvc.perform(get("/v3/api-docs"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.paths['/payment'].post.requestBody.content['application/json']"
+            + ".schema['$ref']").value("#/components/schemas/PaymentRequest"))
+        .andExpect(jsonPath("$.components.schemas.PaymentRequest.properties.cardNumber.type")
+            .value("string"))
+        .andExpect(jsonPath("$.components.schemas.PaymentRequest.properties.amount.type")
+            .value("integer"))
+        .andExpect(jsonPath("$.paths['/payment'].post.responses['400']").exists())
+        .andExpect(jsonPath("$.paths['/payment'].post.responses['503']").exists())
+        .andExpect(jsonPath("$.paths['/payment/{id}'].get.responses['404']").exists());
   }
 
   @Test

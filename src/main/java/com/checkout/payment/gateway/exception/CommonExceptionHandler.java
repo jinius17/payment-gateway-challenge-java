@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -20,7 +21,7 @@ public class CommonExceptionHandler {
   @ExceptionHandler(EventProcessingException.class)
   public ResponseEntity<ErrorResponse> handleException(EventProcessingException ex) {
     LOG.warn("Payment not found: {}", ex.getMessage());
-    return new ResponseEntity<>(new ErrorResponse("Page not found"),
+    return new ResponseEntity<>(new ErrorResponse("Payment not found"),
         HttpStatus.NOT_FOUND);
   }
 
@@ -51,6 +52,14 @@ public class CommonExceptionHandler {
     return new ResponseEntity<>(
         new ErrorResponse("Payment request could not be read", PaymentStatus.REJECTED.getName()),
         HttpStatus.BAD_REQUEST);
+  }
+
+  @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(
+      HttpMediaTypeNotSupportedException ex) {
+    LOG.warn("Unsupported content type");
+    return new ResponseEntity<>(new ErrorResponse("Content-Type must be application/json"),
+        HttpStatus.UNSUPPORTED_MEDIA_TYPE);
   }
 
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)

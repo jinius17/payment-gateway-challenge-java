@@ -71,28 +71,16 @@ curl -i -X POST http://localhost:8090/payment \
 ./gradlew test
 ```
 
-# Instructions for candidates
+The tests need JDK 17. They do not run on JDK 21 or later, because Mockito in the pinned Spring Boot 3.1.5 cannot modify classes there.
 
-This is the Java version of the Payment Gateway challenge. If you haven't already read this [README.md](https://github.com/cko-recruitment/) on the details of this exercise, please do so now.
+## API documentation
 
-## Requirements
-- JDK 17
-- Docker
+Swagger UI is at http://localhost:8090/swagger-ui/index.html. The OpenAPI document is at http://localhost:8090/v3/api-docs. It describes the request, the response, and each error status.
 
-## Template structure
+## Project layout
 
-src/ - A skeleton SpringBoot Application
-
-test/ - Some simple JUnit tests
-
-imposters/ - contains the bank simulator configuration. Don't change this
-
-.editorconfig - don't change this. It ensures a consistent set of rules for submissions when reformatting code
-
-docker-compose.yml - configures the bank simulator
-
-
-## API Documentation
-For documentation openAPI is included, and it can be found under the following url: **http://localhost:8090/swagger-ui/index.html**
-
-**Feel free to change the structure of the solution, use a different library etc.**
+- `src/main` is the gateway: controller, service, validation, bank client, and an in-memory repository.
+- `src/test` has unit tests for each layer and MockMvc tests for the API.
+- `imposters/` is the bank simulator configuration. It is unchanged from the template.
+- `docker-compose.yml` runs the simulator and the gateway.
+- `decisions.md` records the design decisions, the rules, and the known limitations.

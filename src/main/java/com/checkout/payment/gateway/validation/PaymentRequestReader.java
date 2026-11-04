@@ -4,14 +4,13 @@ import com.checkout.payment.gateway.exception.InvalidPaymentException;
 import com.checkout.payment.gateway.model.PaymentRequest;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,19 +19,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class PaymentRequestReader {
 
+  static final String UNREADABLE = "Payment request could not be read";
+  static final String UNKNOWN_FIELD = "Request body contains an unknown field";
+  static final String TRAILING_CONTENT = "Request body has trailing content";
+
   private static final List<Field> FIELDS = List.of(
-      new Field("cardNumber", PaymentField.CARD_NUMBER, false,
-          "Card number must be a JSON string", null),
-      new Field("expiryMonth", PaymentField.EXPIRY_MONTH, true,
-          "Expiry month must be a JSON integer", "Expiry month is outside the supported range"),
-      new Field("expiryYear", PaymentField.EXPIRY_YEAR, true,
-          "Expiry year must be a JSON integer", "Expiry year is outside the supported range"),
-      new Field("currency", PaymentField.CURRENCY, false,
-          "Currency must be a JSON string", null),
-      new Field("amount", PaymentField.AMOUNT, true,
-          "Amount must be a JSON integer", "Amount is outside the supported range"),
-      new Field("cvv", PaymentField.CVV, false,
-          "CVV must be a JSON string", null));
+      new Field("cardNumber", PaymentField.CARD_NUMBER, "Card number", false),
+      new Field("expiryMonth", PaymentField.EXPIRY_MONTH, "Expiry month", true),
+      new Field("expiryYear", PaymentField.EXPIRY_YEAR, "Expiry year", true),
+      new Field("currency", PaymentField.CURRENCY, "Currency", false),
+      new Field("amount", PaymentField.AMOUNT, "Amount", true),
+      new Field("cvv", PaymentField.CVV, "CVV", false));
+
+  private static final Map<String, Field> FIELDS_BY_NAME = byName();
 
   private final ObjectMapper objectMapper;
   private final PaymentValidator paymentValidator;
@@ -42,59 +41,68 @@ public class PaymentRequestReader {
     this.paymentValidator = paymentValidator;
   }
 
+  /**
+   * Reads a payment from a JSON body. Every problem found in the body is reported together:
+   * a field of the wrong JSON type, a repeated field, an unknown field, a value that breaks a
+   * rule, and trailing content. A body that is not a JSON object is reported on its own.
+   */
   public PaymentRequest read(String json) {
-    JsonNode body = parseObject(json);
-    if (body == null || !body.isObject()) {
-      throw new InvalidPaymentException(List.of("Payment request could not be read"));
+    Map<PaymentField, String> problems = new EnumMap<>(PaymentField.class);
+    Set<String> bodyErrors = new LinkedHashSet<>();
+    Map<String, JsonNode> values = parseObject(json, problems, bodyErrors);
+    if (values == null) {
+      throw new InvalidPaymentException(List.of(UNREADABLE));
     }
 
     PaymentRequest request = new PaymentRequest();
-    Map<PaymentField, String> problems = new HashMap<>();
     for (Field field : FIELDS) {
-      readField(body.get(field.name), field, request, problems);
+      if (!problems.containsKey(field.paymentField())) {
+        readField(values.get(field.jsonName()), field, request, problems);
+      }
     }
-    List<String> errors = paymentValidator.validate(request, problems);
+
+    List<String> errors = new ArrayList<>(paymentValidator.validate(request, problems));
+    errors.addAll(bodyErrors);
     if (!errors.isEmpty()) {
       throw new InvalidPaymentException(errors);
     }
     return request;
   }
 
-  private ObjectReader valueReader() {
-    // A field value is not the end of the body. Trailing content is checked once
-    // the whole object has been read.
-    return objectMapper.reader().without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-  }
-
-  private JsonNode parseObject(String json) {
+  /**
+   * Walks the object by hand so a repeated name can be reported next to the other errors.
+   * Returns null when the body is not a complete JSON object.
+   */
+  private Map<String, JsonNode> parseObject(String json, Map<PaymentField, String> problems,
+      Set<String> bodyErrors) {
     try (JsonParser parser = objectMapper.createParser(json)) {
-      // The mapper rejects duplicate names. This walk reports them itself, so the
-      // response does not depend on the wording of Jackson's exception.
-      parser.disable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
       if (parser.nextToken() != JsonToken.START_OBJECT) {
         return null;
       }
-      ObjectNode object = objectMapper.createObjectNode();
-      Set<String> names = new HashSet<>();
-      while (parser.nextToken() != JsonToken.END_OBJECT) {
-        if (!parser.hasToken(JsonToken.FIELD_NAME)) {
-          return null;
-        }
+      Map<String, JsonNode> values = new HashMap<>();
+      while (parser.nextToken() == JsonToken.FIELD_NAME) {
         String name = parser.currentName();
-        if (!names.add(name)) {
-          throw new InvalidPaymentException(List.of("Request body contains a duplicate field"));
-        }
         parser.nextToken();
-        object.set(name, valueReader().readTree(parser));
+        Field field = FIELDS_BY_NAME.get(name);
+        if (field == null) {
+          bodyErrors.add(UNKNOWN_FIELD);
+          parser.skipChildren();
+        } else if (values.containsKey(name)) {
+          problems.put(field.paymentField(), field.duplicateMessage());
+          parser.skipChildren();
+        } else {
+          values.put(name, objectMapper.readTree(parser));
+        }
+      }
+      if (parser.currentToken() != JsonToken.END_OBJECT) {
+        return null;
       }
       if (hasTrailingToken(parser)) {
-        throw new InvalidPaymentException(List.of("Request body has trailing content"));
+        bodyErrors.add(TRAILING_CONTENT);
       }
-      return object;
-    } catch (InvalidPaymentException exception) {
-      throw exception;
+      return values;
     } catch (IOException exception) {
-      throw new InvalidPaymentException(List.of("Payment request could not be read"));
+      return null;
     }
   }
 
@@ -108,26 +116,26 @@ public class PaymentRequestReader {
 
   private void readField(JsonNode value, Field field, PaymentRequest request,
       Map<PaymentField, String> problems) {
-    if (value == null || value.isNull()) {
+    if (value == null) {
       return;
     }
-    if (field.integer) {
+    if (field.integer()) {
       readInteger(value, field, request, problems);
     } else if (value.isTextual()) {
-      setText(field.paymentField, value.textValue(), request);
+      setText(field.paymentField(), value.textValue(), request);
     } else {
-      problems.put(field.paymentField, field.typeMessage);
+      problems.put(field.paymentField(), field.typeMessage());
     }
   }
 
   private void readInteger(JsonNode value, Field field, PaymentRequest request,
       Map<PaymentField, String> problems) {
     if (!value.isIntegralNumber()) {
-      problems.put(field.paymentField, field.typeMessage);
+      problems.put(field.paymentField(), field.typeMessage());
     } else if (!value.canConvertToInt()) {
-      problems.put(field.paymentField, field.rangeMessage);
+      problems.put(field.paymentField(), field.rangeMessage());
     } else {
-      setInteger(field.paymentField, value.intValue(), request);
+      setInteger(field.paymentField(), value.intValue(), request);
     }
   }
 
@@ -149,7 +157,25 @@ public class PaymentRequestReader {
     }
   }
 
-  private record Field(String name, PaymentField paymentField, boolean integer,
-                        String typeMessage, String rangeMessage) {
+  private static Map<String, Field> byName() {
+    Map<String, Field> byName = new HashMap<>();
+    FIELDS.forEach(field -> byName.put(field.jsonName(), field));
+    return Map.copyOf(byName);
+  }
+
+  private record Field(String jsonName, PaymentField paymentField, String label,
+                        boolean integer) {
+
+    String typeMessage() {
+      return label + (integer ? " must be a JSON integer" : " must be a JSON string");
+    }
+
+    String rangeMessage() {
+      return label + " is outside the supported range";
+    }
+
+    String duplicateMessage() {
+      return label + " must appear only once";
+    }
   }
 }
